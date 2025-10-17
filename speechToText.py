@@ -1,9 +1,9 @@
 import whisper
 from pydub import AudioSegment
 
-audioFile = "samples/neurosama.wav"
+#audioFile = "samples/asmr.wav"
 
-model = whisper.load_model("base")
-result = model.transcribe(audioFile)
+model = whisper.load_model("medium")
+# result = model.transcribe(audioFile, language="ja", task="transcribe")
 
-print(result["text"])
+#print(result["text"])
