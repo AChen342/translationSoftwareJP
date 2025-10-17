@@ -3,26 +3,66 @@ import os
 from pydub import AudioSegment
 import whisper
 import json
+import torch
+from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
 
 # 1. Ask user for audio file name
 # 2. If not .wav convert to correct format
 # 3. Transcribe audio
-# 4. Save transcription to audio file
+# 4. Save transcription to json file
+# 5. Translate transcriptions
+
+# utility function to view transcription with time stamp
+def viewTranscription():
+    with open("segments.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    for d in data:
+        start = d['start']
+        end = d['end']
+        text = d['text']
+        print(f"[{start:.2f}-{end:.2f}]: {text}")
+    
+def en_jpTranslate():
+    # tokenizer breaks down sentences into subwords (tokens)
+    tokenizer = M2M100Tokenizer.from_pretrained("facebook/m2m100_418M")
+    model = M2M100ForConditionalGeneration.from_pretrained("facebook/m2m100_418M")
+    tokenizer.src_lang = "en"
+
+    with open("segments.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    
+    jp_translation = []
+    for d in data:
+        text = d['text']
+
+        encoded = tokenizer(text, return_tensors="pt")
+        with torch.no_grad():
+            generated_tokens = model.generate(**encoded, forced_bos_token_id=tokenizer.get_lang_id("ja"))
+    
+        translated = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+
+        segment = {
+            "id": d['id'],
+            "start" : d['start'],
+            "end" : d['end'],
+            "text" : translated[0]
+        }
+
+        jp_translation.append(segment)
+
+    with open("jp_translation.json", "w", encoding="utf-8") as f:
+        json.dump(jp_translation, f, ensure_ascii=False, indent=2)
+    
+    print("Japanese translation completed.")
 
 # transcribes audio
 def speechToText(audioFile):
     model = whisper.load_model("medium")
     result = model.transcribe(audioFile, language="en", task="transcribe", verbose=False)
 
-    # saves segments into json file to be translated later on
-    with open("segments.json", "w", encoding="utf-8") as f:
-        json.dump(result["segments"], f, ensure_ascii=False, indent=2)
-
-    # Load raw Whisper result
-    with open("segments.json", "r", encoding="utf-8") as f:
-        raw_segments = json.load(f)
-
-    # Simplify
+    # first clean segments to have only necessary data
+    # id, start time, end time, and text
     clean_segments = [
         {
             "id": seg["id"],
@@ -30,16 +70,15 @@ def speechToText(audioFile):
             "end": seg["end"],
             "text": seg["text"].strip()
         }
-        for seg in raw_segments
+        for seg in result['segments']
     ]
+    print("Segments have been cleaned.")
 
-    # Save clean JSON
+    # saves segments into json file to be translated later on
     with open("segments.json", "w", encoding="utf-8") as f:
         json.dump(clean_segments, f, ensure_ascii=False, indent=2)
-
-    print(f"Saved {len(clean_segments)} cleaned segments.")
-
-
+    print("Transcription saved.")
+    
 # function used to convert audio files to .wav
 def convertToWav(audioFile):
     audioFileName = audioFile.split(".")[0]
@@ -74,7 +113,9 @@ def main():
 
     # transcribe audio file
     speechToText("samples/" + audioFile)
-    print("Audio transcribed.")
+
+    #translate
+    en_jpTranslate()
 
 
 if __name__== "__main__":
